@@ -1,0 +1,39 @@
+# Configuración por defecto: reproduce exactamente el régimen del notebook.
+# Para lanzar una variante, copia este fichero y pásalo con --config.
+
+paths:
+  # Rutas de Kaggle. En local, apunta a donde hayas descomprimido el dataset.
+  csv: /kaggle/input/competitions/airbus-ship-detection/train_ship_segmentations_v2.csv
+  train_images: /kaggle/input/competitions/airbus-ship-detection/train_v2
+  artifacts: artifacts
+
+seed: 42
+
+classifier:
+  image_size: 224
+  batch_size: 32
+  epochs: 2
+  lr: 1.0e-3
+  num_workers: 2
+  val_fraction: 0.2
+  pretrained: true
+  # ImageNet sirve como inicialización, no como extractor fijo: sus texturas de
+  # fotografía terrestre no describen cascos vistos desde un satélite.
+  freeze_backbone: false
+  # Imágenes sin barco por cada imagen con barco. 1.0 → reparto 50/50.
+  # Pon `null` para entrenar sobre el dataset completo sin submuestrear.
+  negative_ratio: 1.0
+
+segmenter:
+  image_size: 256
+  batch_size: 16
+  epochs: 3
+  lr: 1.0e-4
+  num_workers: 2
+  val_fraction: 0.2
+  features: [64, 128, 256, 512]
+  # Reparto entre BCE (píxel a píxel) y Dice (solapamiento).
+  bce_weight: 0.5
+  # Umbral sobre la probabilidad. 0,5 es el valor por defecto, no el óptimo:
+  # F2 pondera el recall ×4, así que conviene barrerlo con tune_threshold.py.
+  threshold: 0.5

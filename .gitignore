@@ -1,0 +1,86 @@
+# ─── Entornos virtuales ────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+/build/
+/dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+
+# ─── Test y calidad ────────────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ─── Pesos y checkpoints ───────────────────────────────────────────────────
+# No versionar binarios de cientos de MB. El checkpoint completo de la U-Net
+# ronda los 355 MB (pesos + los dos momentos de Adam) y GitHub rechaza a 100 MB.
+# Publícalos como Release, con Git LFS, o en almacenamiento externo.
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+/artifacts/
+/checkpoints/
+/runs/
+/logs/
+/wandb/
+/lightning_logs/
+
+# ─── Datos ─────────────────────────────────────────────────────────────────
+# El dataset de Airbus pesa ~30 GB: se descarga, no se versiona.
+# Barra inicial obligatoria: `data/` a secas también excluiría src/airbus/data/.
+/data/
+*.csv
+*.zip
+*.tar
+*.tar.gz
+*.h5
+*.npz
+!configs/*.csv
+
+# ─── Salidas de figuras ────────────────────────────────────────────────────
+# Se ignoran las que genera el código (predicciones, curvas sueltas); las que
+# ilustran el README viven en docs/ y sí se versionan.
+/figures/
+*.png
+*.jpg
+*.jpeg
+*.webp
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!docs/**/*.svg
+
+# ─── Notebooks ─────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+# Los notebooks guardan las salidas embebidas: revisa que no arrastren datos
+# antes de versionarlos (nbstripout automatiza esta limpieza).
+
+# ─── Sistema y editores ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ─── Secretos ──────────────────────────────────────────────────────────────
+.env
+.env.*
+kaggle.json
+*.pem
+*.key
