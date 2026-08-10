@@ -6,10 +6,11 @@ devuelven la máscara de cada casco, píxel a píxel.
 
 **F2 = 0,7726** · Dice = 0,7912 · IoU = 0,6545 sobre 8 512 imágenes de validación.
 
-> Refactorización modular del notebook `Airbus_Segmentation_v3.ipynb`. El
-> notebook sigue siendo la memoria del desarrollo; este paquete es el código
-> pensado para crecer: configuración externa, componentes desacoplados, tests y
-> scripts reproducibles.
+> Refactorización modular del notebook
+> `notebooks/original/Airbus_Segmentation_v3.ipynb`. El notebook sigue siendo la
+> memoria del desarrollo; este paquete es el código pensado para crecer:
+> configuración externa, componentes desacoplados, tests y scripts reproducibles.
+> Los resultados se reproducen desde `notebooks/resultados.ipynb`.
 
 ---
 
@@ -20,7 +21,7 @@ devuelven la máscara de cada casco, píxel a píxel.
 - [Instalación](#instalación)
 - [Uso](#uso)
 - [Estructura del proyecto](#estructura-del-proyecto)
-- [Las quince dificultades del camino](#las-quince-dificultades-del-camino)
+- [15 problemas de código y razonamiento solucionados](#15-problemas-de-código-y-razonamiento-solucionados)
 - [Las redes por dentro](#las-redes-por-dentro)
 - [Resultados](#resultados)
 - [Configuración](#configuración)
@@ -157,6 +158,19 @@ Reanudar un entrenamiento interrumpido:
 python scripts/train_segmenter.py --resume artifacts/unet_checkpoint.pth
 ```
 
+### El cuaderno de resultados
+
+`notebooks/resultados.ipynb` no entrena nada: carga la configuración, los pesos
+de `artifacts/` y los checkpoints, y los usa para reproducir las métricas, el
+barrido de umbral y las figuras de este README.
+
+```bash
+jupyter lab notebooks/resultados.ipynb
+```
+
+Su primera celda declara las rutas y la segunda dice exactamente qué recursos
+faltan antes de intentar cargar nada.
+
 ### Desde Python
 
 ```python
@@ -184,7 +198,12 @@ print(pred.to_rle())     # RLE listo para enviar a Kaggle
 ```
 airbus_ship_segmentation/
 ├── configs/
-│   └── default.yaml            # hiperparámetros; reproduce el régimen original
+│   └── default.yaml            # hiperparámetros del régimen de entrenamiento
+├── docs/                       # las figuras que ilustran este README
+├── notebooks/
+│   ├── resultados.ipynb        # carga pesos y config, y muestra los resultados
+│   └── original/
+│       └── Airbus_Segmentation_v3.ipynb    # el cuaderno de Kaggle del que salió todo
 ├── src/airbus/
 │   ├── config.py               # configuración tipada cargada desde YAML
 │   ├── data/
@@ -195,13 +214,28 @@ airbus_ship_segmentation/
 │   ├── models/
 │   │   ├── classifier.py       # ResNet-50 con fc → 1 logit
 │   │   └── unet.py             # DoubleConv + U-Net
-│   ├── losses.py               # BCEDiceLoss
+│   ├── losses.py               # BCEDiceLoss y dice_coefficient
 │   ├── metrics.py              # matriz de confusión acumulada, F2/IoU/Dice
 │   ├── engine.py               # bucles de entrenamiento y evaluación
 │   ├── pipeline.py             # la cascada como objeto invocable
-│   └── utils/                  # dispositivo, semillas, checkpoints, gráficas
-├── scripts/                    # entrada por línea de comandos
-└── tests/                      # 67 tests
+│   └── utils/
+│       ├── device.py           # get_device (CUDA→MPS→CPU) y set_seed
+│       ├── checkpoint.py       # pesos e inferencia · checkpoints reanudables
+│       └── viz.py              # plot_segmentation_batch
+├── scripts/
+│   ├── _common.py              # argumentos comunes: --config, --device, --limit
+│   ├── train_classifier.py     # entrena la ResNet-50
+│   ├── train_segmenter.py      # entrena la U-Net · --resume la reanuda
+│   ├── evaluate.py             # métricas y barrido de umbral (--sweep)
+│   └── predict.py              # inferencia en cascada → CSV de envío
+├── tests/                      # 67 tests
+│   ├── test_rle.py             # ida y vuelta del RLE, y el orden Fortran
+│   ├── test_data.py            # particiones, transformaciones y datasets
+│   ├── test_models.py          # formas y rango de salida de las dos redes
+│   ├── test_losses_metrics.py  # pérdida combinada y métricas acumuladas
+│   └── test_pipeline.py        # la cascada y la persistencia
+├── artifacts/                  # pesos y checkpoints · generado, no se versiona
+└── pyproject.toml
 ```
 
 La separación responde a una regla: **cada módulo se puede sustituir sin tocar
@@ -210,7 +244,7 @@ en `models/` y un valor en el YAML; nada más se entera.
 
 ---
 
-## Las quince dificultades del camino
+## 15 problemas de código y razonamiento solucionados
 
 Los problemas reales que aparecieron durante el desarrollo, con su solución.
 Están agrupados por dónde vivían.
@@ -219,7 +253,7 @@ Están agrupados por dónde vivían.
 
 #### P1 · Una sola red no puede responder las dos preguntas a la vez
 
-- **Síntoma** — el 77,90 % de las imágenes es océano vacío. Una red de
+- **Descripción** — el 77,90 % de las imágenes es océano vacío. Una red de
   segmentación entrenada sobre todo el dataset aprende antes a devolver una
   máscara en blanco que a encontrar un casco de 300 píxeles.
 - **Causa** — son dos preguntas de granularidad distinta, con necesidades
@@ -236,7 +270,7 @@ Están agrupados por dónde vivían.
 
 #### P2 · Las máscaras no son imágenes: son texto
 
-- **Síntoma** — `EncodedPixels` contiene cadenas como `"264661 17 265429 33 …"`.
+- **Descripción** — `EncodedPixels` contiene cadenas como `"264661 17 265429 33 …"`.
   PyTorch no puede retropropagar sobre eso.
 - **Causa** — Run-Length Encoding: pares *(inicio, longitud)* sobre la imagen
   aplanada. Formato de almacenamiento, no de cálculo.
@@ -246,7 +280,7 @@ Están agrupados por dónde vivían.
 
 #### P3 · El RLE recorre columnas, no filas
 
-- **Síntoma** — con el `reshape` por defecto los barcos salían **transpuestos**:
+- **Descripción** — con el `reshape` por defecto los barcos salían **transpuestos**:
   máscara e imagen no coincidían y el entrenamiento no podía converger a nada.
 - **Causa** — NumPy aplana en **orden C** (fila a fila); Airbus codifica en
   **orden Fortran** (columna a columna), la convención de MATLAB y de buena parte
@@ -262,7 +296,7 @@ Están agrupados por dónde vivían.
 
 #### P4 · Una imagen con tres barcos son tres filas del CSV
 
-- **Síntoma** — indexar el dataframe por posición devolvía un barco suelto, no la
+- **Descripción** — indexar el dataframe por posición devolvía un barco suelto, no la
   imagen completa. Una imagen con varios barcos habría entrado varias veces al
   entrenamiento, cada vez con una máscara parcial.
 - **Causa** — el CSV está normalizado por *instancia*: una fila por barco.
@@ -277,7 +311,7 @@ Están agrupados por dónde vivían.
 
 #### P5 · Desbalance a nivel de imagen
 
-- **Síntoma** — 150 000 imágenes sin barco frente a 42 556 con barco. Un
+- **Descripción** — 150 000 imágenes sin barco frente a 42 556 con barco. Un
   clasificador que responda siempre «no hay barco» acierta el **77,90 %**: la
   accuracy deja de significar nada y el gradiente empuja hacia ese mínimo desde
   la primera época.
@@ -293,7 +327,7 @@ Están agrupados por dónde vivían.
 
 #### P6 · Desbalance a nivel de píxel
 
-- **Síntoma** — dentro de una imagen que *sí* tiene barco, apenas el **0,51 %**
+- **Descripción** — dentro de una imagen que *sí* tiene barco, apenas el **0,51 %**
   de los píxeles es casco. Predecir «todo es océano» da un 99,5 % de acierto por
   píxel y una máscara vacía. El submuestreo de P5 no sirve: no se pueden tirar
   píxeles.
@@ -312,7 +346,7 @@ Están agrupados por dónde vivían.
 
 #### P7 · La API v1 de torchvision desalinea la máscara respecto a la imagen
 
-- **Síntoma** — con `T.RandomHorizontalFlip` la imagen se voltea y la máscara no
+- **Descripción** — con `T.RandomHorizontalFlip` la imagen se voltea y la máscara no
   —o se voltea con *otro* sorteo aleatorio—. La etiqueta deja de corresponder al
   píxel que etiqueta.
 - **Causa** — las transformaciones v1 reciben **un solo objeto**: aplicarlas dos
@@ -338,7 +372,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P8 · Qué es —y qué no es— el data augmentation aquí
 
-- **Síntoma** — si se «aumentan» los datos, ¿por qué `len(dataset)` no crece?
+- **Descripción** — si se «aumentan» los datos, ¿por qué `len(dataset)` no crece?
   ¿Hay que duplicar filas del dataframe?
 - **Causa** — confusión entre aumentar *el dataset* y aumentar *la variedad vista
   durante el entrenamiento*.
@@ -356,7 +390,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P9 · ¿Congelar el backbone preentrenado o no?
 
-- **Síntoma** — duda de diseño, no un error: el atajo estándar en transfer
+- **Descripción** — duda de diseño, no un error: el atajo estándar en transfer
   learning es congelar el backbone y entrenar solo la cabeza.
 - **Causa** — ImageNet enseña texturas y estructuras genéricas de fotografía
   terrestre a nivel de suelo. Aquí las imágenes son cenitales, casi monocromas, y
@@ -368,7 +402,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P10 · Los canales del decoder no cuadraban
 
-- **Síntoma** — `RuntimeError` por desajuste de canales, y antes incluso un
+- **Descripción** — `RuntimeError` por desajuste de canales, y antes incluso un
   `AttributeError`: `nn.ReLu` no existe, es `nn.ReLU`.
 - **Causa** — dos errores independientes. (1) En `DoubleConv`, la segunda
   convolución recibía `in_channels` cuando la primera ya había transformado el
@@ -381,7 +415,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P11 · La última capa no puede llevar activación
 
-- **Síntoma** — la capa final estaba escrita como `DoubleConv(features[0], out_features)`.
+- **Descripción** — la capa final estaba escrita como `DoubleConv(features[0], out_features)`.
 - **Causa** — `DoubleConv` **termina en ReLU**, que recorta a cero todo valor
   negativo. La salida son **logits**, y `sigmoid(0) = 0,5`: con una ReLU delante,
   ningún píxel podría bajar del 50 % de probabilidad. Con el umbral en 0,5 la red
@@ -400,7 +434,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P12 · Las formas no calzan entre la salida y la etiqueta
 
-- **Síntoma** — la ResNet devuelve `[32, 1]` pero las etiquetas llegan como
+- **Descripción** — la ResNet devuelve `[32, 1]` pero las etiquetas llegan como
   `[32]`. La U-Net devuelve `[16, 1, 256, 256]` pero las máscaras llegan como
   `[16, 256, 256]`.
 - **Causa** — las etiquetas escalares no tienen dimensión de canal y
@@ -414,7 +448,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P13 · La pérdida por época estaba mal normalizada
 
-- **Síntoma** — la pérdida por época salía con una escala que no cuadraba con las
+- **Descripción** — la pérdida por época salía con una escala que no cuadraba con las
   pérdidas por lote impresas justo encima.
 - **Causa** — mezcla de unidades: el acumulador suma `loss.item() * batch_size`
   (pérdida por imagen) pero se dividía por `len(loader)` (número de **lotes**).
@@ -425,7 +459,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P14 · El umbral vive en el espacio de logits, no en el de probabilidades
 
-- **Síntoma** — al calcular la accuracy dentro del bucle: la red no devuelve
+- **Descripción** — al calcular la accuracy dentro del bucle: la red no devuelve
   probabilidades, devuelve logits. ¿Se compara contra 0,5?
 - **Causa** — `BCEWithLogitsLoss` **incluye la sigmoide internamente**, por
   estabilidad numérica, así que la red nunca la aplica. Umbralizar logits en 0,5
@@ -437,7 +471,7 @@ image, mask = transform(image, tv_tensors.Mask(decoded))
 
 #### P15 · Guardar los pesos no basta para reanudar
 
-- **Síntoma** — las sesiones de Kaggle tienen límite de tiempo. Con solo
+- **Descripción** — las sesiones de Kaggle tienen límite de tiempo. Con solo
   `state_dict()` guardado, retomar el entrenamiento significa reiniciar el
   optimizador.
 - **Causa** — Adam no es un optimizador sin memoria: mantiene **dos momentos por
@@ -509,6 +543,12 @@ solo el 46 % de la red.
 Métricas acumuladas píxel a píxel sobre las **8 512 imágenes de validación** que
 la U-Net nunca vio, con el umbral en 0,5.
 
+> **Todas las cifras y figuras de esta sección son históricas.** Salen del
+> entrenamiento que el autor ejecutó en Kaggle y se conservan como registro de
+> aquel resultado, no como salida de una ejecución reciente. Para reproducirlas
+> hacen falta los pesos de ese entrenamiento: `notebooks/resultados.ipynb` los
+> carga y recalcula las métricas sobre la misma partición de validación.
+
 | Métrica | Valor |
 |---|---|
 | **F2 (oficial)** | **0,7726** |
@@ -543,8 +583,8 @@ explotar ese margen sin reentrenar nada.
 | Épocas | 2 | 3 |
 | Resultado | accuracy 0,9188 → 0,9429 | pérdida 0,4176 → 0,1530 → 0,1279 |
 
-**Curvas de pérdida por lote**, reconstruidas de los registros de entrenamiento
-(una marca cada 50 lotes):
+**Curvas de pérdida por lote**, reconstruidas de la salida impresa de aquel
+entrenamiento —el cuaderno imprimía la pérdida una vez cada 50 lotes—:
 
 ![Curva de pérdida del clasificador a lo largo de dos épocas: cae bruscamente de 0,69 durante los primeros 300 lotes y después oscila en una banda estrecha](docs/loss-classifier.png)
 
@@ -558,6 +598,11 @@ de ahí, ruido de lote.
 Perfil completamente distinto: la U-Net entrena desde cero y su descenso es
 gradual a lo largo de toda la primera época. Empieza cerca de 0,82 ≈ 0,5·ln2 + 0,5,
 el valor que dan una BCE ciega y un Dice nulo.
+
+> Estas dos curvas **no se regeneran con el código actual**: `engine` devuelve la
+> pérdida media por época y no guarda un historial por lote, que es lo que se
+> perdió al convertir los bucles del cuaderno en funciones. Son el registro de
+> aquel entrenamiento, no una salida de los scripts.
 
 ### Cómo falla
 
@@ -617,9 +662,15 @@ test correspondiente falla:
 
 ## Qué cambia respecto al notebook
 
-La lógica de datos, arquitecturas, pérdidas y métricas es **la misma**: la
-configuración por defecto reproduce el régimen original. Lo que cambia es la
-forma, más tres capacidades que el notebook no llegaba a tener:
+La lógica de datos, arquitecturas, pérdidas y métricas es **la misma**, y la
+configuración por defecto reproduce el régimen original **salvo en un punto**:
+`build_classifier_transforms(train=True)` añade un volteo horizontal aleatorio al
+clasificador que el cuaderno no aplicaba —allí el único aumento vivía en la rama
+de segmentación—. Quien quiera reproducirlo al pie de la letra tiene que quitar
+ese volteo.
+
+Lo demás que cambia es la forma, más las capacidades que el cuaderno no llegaba a
+tener:
 
 **Estructura**
 
@@ -650,6 +701,31 @@ forma, más tres capacidades que el notebook no llegaba a tener:
 - `weights_only=True` al cargar checkpoints: sin ejecución de código arbitrario.
 - Barrido de umbral en una sola pasada sobre el dataset.
 
+### Autoría de estas capacidades
+
+Las capacidades nuevas de esta arquitectura **se escribieron con Claude**
+(Anthropic). El autor no las programó: revisó su uso, comprobó cómo afectan al
+proyecto y decidió cuáles entraban. La tabla separa las que pidió explícitamente
+de las que propuso Claude, y deja claro en qué estado quedó cada una.
+
+| Capacidad | Origen | Para qué, y con qué validación |
+|---|---|---|
+| La cascada: `ShipSegmentationPipeline`, `Prediction`, `.to_rle()`, `.predict_batch()` | pedida por el autor | Cierra el proyecto: unifica la ResNet-50 y la U-Net en una sola llamada. |
+| `validate_classifier()` | pedida por el autor | Evaluar el clasificador sobre datos retenidos. |
+| `load_weights()` · `load_checkpoint()` | pedidas por el autor | Para que un lector pueda cargar los pesos que le solicite al autor. |
+| Los 67 tests | pedidos por el autor | Validar la arquitectura modular: integración, conexiones entre funciones y uso con datos artificiales. |
+| Pérdida de validación por época | propuesta por Claude, aprobada por el autor | No es una función sino una lógica que el código original no tenía: permite detectar el sobreajuste y deja un checkpoint en el punto óptimo del entrenamiento. Sirve tanto para entrenar mejor como para evaluar pesos venidos de un entrenamiento externo. |
+| Guardado del mejor modelo por métrica | propuesta por Claude, aceptada | Conservar el mejor resultado y poder experimentar después con variantes. |
+| `--resume` | propuesta por Claude, aceptada | Continuar un entrenamiento interrumpido. |
+| `sweep_threshold()` · `evaluate.py --sweep` | propuesta por Claude, aceptada **pero nunca ejecutada** | Experimento para subir el F2 sin reentrenar. El proyecto es perfectamente utilizable sin ella; queda como vía abierta para quien quiera explorarla. |
+| `rle_encode()` | aportada por Claude | Para una entrega eventual a Kaggle que el autor no se ha planteado hacer. Disponible para el lector que sí quiera enviar. |
+
+Quedan fuera de la lista, a propósito, el sistema de configuración, la selección
+de dispositivo, las semillas y los scripts de línea de comandos: son consecuencia
+directa de convertir un cuaderno en un paquete modular, no capacidades que antes
+faltaran. Las funciones que ya existían en el cuaderno y aquí solo cambian de
+forma tampoco entran.
+
 ---
 
 ## Referencia
@@ -660,4 +736,4 @@ forma, más tres capacidades que el notebook no llegaba a tener:
 
 ## Autores
 
-Joel Coyago · Danna Ayala · Christian Andrade
+Joel Coyago

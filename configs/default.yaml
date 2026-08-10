@@ -1,4 +1,6 @@
-# Configuración por defecto: reproduce exactamente el régimen del notebook.
+# Configuración por defecto: reproduce el régimen del notebook salvo en un punto
+# —`build_classifier_transforms(train=True)` añade al clasificador un volteo
+# horizontal que allí no se aplicaba— y ese aumento no se controla desde aquí.
 # Para lanzar una variante, copia este fichero y pásalo con --config.
 
 paths:
