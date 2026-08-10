@@ -228,12 +228,7 @@ airbus_ship_segmentation/
 │   ├── train_segmenter.py      # entrena la U-Net · --resume la reanuda
 │   ├── evaluate.py             # métricas y barrido de umbral (--sweep)
 │   └── predict.py              # inferencia en cascada → CSV de envío
-├── tests/                      # 67 tests
-│   ├── test_rle.py             # ida y vuelta del RLE, y el orden Fortran
-│   ├── test_data.py            # particiones, transformaciones y datasets
-│   ├── test_models.py          # formas y rango de salida de las dos redes
-│   ├── test_losses_metrics.py  # pérdida combinada y métricas acumuladas
-│   └── test_pipeline.py        # la cascada y la persistencia
+├── tests/                      # 67 tests de integración y validación
 ├── artifacts/                  # pesos y checkpoints · generado, no se versiona
 └── pyproject.toml
 ```
